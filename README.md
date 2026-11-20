@@ -1,4 +1,4 @@
-# image-upscaler
+# quite-ledger-image
 
 Upscales images to twice their size. It uses Real-ESRGAN x2plus, a free
 model that runs on CPU. No GPU. No paid service.
