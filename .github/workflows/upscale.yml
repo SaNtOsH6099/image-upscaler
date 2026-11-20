@@ -1,0 +1,61 @@
+name: Upscale images 2x
+
+# Upscales every image in input/ to twice its size with Real-ESRGAN
+# x2plus (ONNX, CPU). One file per job, up to 20 jobs at once.
+# Run it from the Actions tab. Results come back as artifacts.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      files: ${{ steps.list.outputs.files }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: list
+        run: |
+          files=$(find input -maxdepth 1 -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' \) | sort | python3 -c "import sys, json; print(json.dumps([l.strip() for l in sys.stdin]))")
+          echo "files=$files" >> "$GITHUB_OUTPUT"
+          echo "Found: $files"
+      - name: Check files found
+        run: |
+          if [ "${{ steps.list.outputs.files }}" = "[]" ]; then
+            echo "No images in input/. Add images and run again."
+            exit 1
+          fi
+
+  upscale:
+    needs: prepare
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        file: ${{ fromJSON(needs.prepare.outputs.files) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install onnxruntime numpy pillow
+      - name: Reassemble model
+        run: |
+          cat models/realesrgan-x2plus.onnx.part-* > models/realesrgan-x2plus.onnx
+          cd models && sha256sum -c realesrgan-x2plus.onnx.sha256
+      - id: upscale
+        name: Upscale one file
+        run: |
+          f="${{ matrix.file }}"
+          base=$(basename "$f")
+          name="${base%.*}"
+          mkdir -p output
+          python upscale.py "$f" "output/${name}-2x.jpg" --threads 4
+          echo "name=${name}-2x" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: upscaled-${{ steps.upscale.outputs.name }}
+          path: output/${{ steps.upscale.outputs.name }}.jpg
+          retention-days: 7
